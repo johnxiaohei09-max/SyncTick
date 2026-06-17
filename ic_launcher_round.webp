@@ -1,0 +1,2053 @@
+package com.example
+
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Bundle
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
+import androidx.compose.animation.*
+import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.StateFlow
+import com.example.data.model.Category
+import com.example.data.model.CompletionRecord
+import com.example.data.model.Task
+import com.example.ui.HabitViewModel
+import com.example.ui.SyncState
+import com.example.ui.theme.MyApplicationTheme
+import java.text.SimpleDateFormat
+import java.util.*
+
+class MainActivity : ComponentActivity() {
+
+    private val viewModel: HabitViewModel by viewModels()
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        
+        // Dynamic notification permission request for API 33+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) 
+                != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                    this, 
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS), 
+                    101
+                )
+            }
+        }
+
+        setContent {
+            MyApplicationTheme {
+                MainAppScreen(viewModel = viewModel)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun MainAppScreen(viewModel: HabitViewModel) {
+    var selectedTab by remember { mutableStateOf(0) }
+    
+    // Bottom Sheet & Dialog States
+    var showAddTaskDialog by remember { mutableStateOf(false) }
+    var taskToEdit by remember { mutableStateOf<Task?>(null) }
+    var showAddCategoryDialog by remember { mutableStateOf(false) }
+
+    // Synchronize global dialog controllers
+    val context = LocalContext.current
+    val syncState by viewModel.syncState.collectAsStateWithLifecycle()
+
+    // Trigger toast on Sync changes
+    LaunchedEffect(syncState) {
+        when (syncState) {
+            is SyncState.Success -> {
+                Toast.makeText(context, "云端同步完成！", Toast.LENGTH_SHORT).show()
+                viewModel.resetSyncState()
+            }
+            is SyncState.Error -> {
+                val msg = (syncState as SyncState.Error).message
+                Toast.makeText(context, "同步失败: $msg", Toast.LENGTH_LONG).show()
+                viewModel.resetSyncState()
+            }
+            else -> {}
+        }
+    }
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        bottomBar = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(0.5.dp)
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val tabs = listOf(
+                        Triple(0, Icons.Filled.CheckCircle, "打勾表"),
+                        Triple(1, Icons.Filled.BarChart, "学习统计"),
+                        Triple(2, Icons.Filled.Settings, "同步管理")
+                    )
+                    tabs.forEach { (index, icon, label) ->
+                        val isSelected = selectedTab == index
+                        val activeColor = MaterialTheme.colorScheme.primary
+                        val inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) { selectedTab = index }
+                                .testTag(if (index == 0) "tab_button_checklist" else if (index == 1) "tab_button_statistics" else "tab_button_settings")
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = label,
+                                tint = if (isSelected) activeColor else inactiveColor,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = label,
+                                fontSize = 10.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) activeColor else inactiveColor
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        floatingActionButton = {
+            if (selectedTab == 0) {
+                FloatingActionButton(
+                    onClick = {
+                        taskToEdit = null
+                        showAddTaskDialog = true
+                    },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = Color.White,
+                    shape = CircleShape,
+                    elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 4.dp, pressedElevation = 8.dp),
+                    modifier = Modifier
+                        .padding(bottom = 8.dp)
+                        .testTag("add_task_fab")
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = "添加任务", modifier = Modifier.size(24.dp))
+                }
+            }
+        },
+        contentWindowInsets = WindowInsets.safeDrawing
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            // Main views switcher
+            when (selectedTab) {
+                0 -> ChecklistTab(
+                    viewModel = viewModel,
+                    onEditTask = {
+                        taskToEdit = it
+                        showAddTaskDialog = true
+                    }
+                )
+                1 -> StatisticsTab(viewModel = viewModel)
+                2 -> SettingsTab(
+                    viewModel = viewModel,
+                    onManageCategories = { showAddCategoryDialog = true }
+                )
+            }
+        }
+
+        // Add/Edit Task Dialog
+        if (showAddTaskDialog) {
+            TaskFormDialog(
+                task = taskToEdit,
+                categoriesFlow = viewModel.categories,
+                onDismiss = { showAddTaskDialog = false },
+                onSave = { title, catId, alarm, mon, tue, wed, thur, fri, sat, sun, targetDate ->
+                    if (taskToEdit == null) {
+                        viewModel.addTask(title, catId, alarm, mon, tue, wed, thur, fri, sat, sun, targetDate)
+                    } else {
+                        val updated = taskToEdit!!.copy(
+                            title = title,
+                            categoryId = catId,
+                            alarmTime = alarm,
+                            mondayActive = mon,
+                            tuesdayActive = tue,
+                            wednesdayActive = wed,
+                            thursdayActive = thur,
+                            fridayActive = fri,
+                            saturdayActive = sat,
+                            sundayActive = sun,
+                            targetDate = targetDate
+                        )
+                        viewModel.updateTask(updated)
+                    }
+                    showAddTaskDialog = false
+                }
+            )
+        }
+
+        // Manage/Add Categories Dialog
+        if (showAddCategoryDialog) {
+            CategoryFormDialog(
+                viewModel = viewModel,
+                onDismiss = { showAddCategoryDialog = false }
+            )
+        }
+    }
+}
+
+// ==========================================
+// 1. CHECKLIST TAB IMPLEMENTATION
+// ==========================================
+@Composable
+fun ChecklistTab(
+    viewModel: HabitViewModel,
+    onEditTask: (Task) -> Unit
+) {
+    val tasks by viewModel.tasks.collectAsStateWithLifecycle()
+    val categories by viewModel.categories.collectAsStateWithLifecycle()
+    val records by viewModel.completionRecords.collectAsStateWithLifecycle()
+
+    var weekOffset by remember { mutableStateOf(0) }
+    val weekDays = remember(weekOffset) { getWeekDaysList(weekOffset) }
+
+    val todayStr = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
+    var selectedDate by remember(weekOffset) {
+        val days = getWeekDaysList(weekOffset)
+        val hasToday = days.any { it.first == todayStr }
+        mutableStateOf(if (hasToday) todayStr else days.first().first)
+    }
+
+    // Fast constant-time lookup map: pre-calculate check states for all habits and days
+    val completedKeysByDate = remember(records) {
+        records.map { "${it.taskId}_${it.dateString}" }.toSet()
+    }
+
+    val filteredTasks = remember(tasks, selectedDate, weekDays) {
+        tasks.filter { task ->
+            val dayIndex = weekDays.indexOfFirst { it.first == selectedDate }
+            if (task.targetDate != null) {
+                task.targetDate == selectedDate
+            } else if (dayIndex in 0..6) {
+                when (dayIndex) {
+                    0 -> task.mondayActive
+                    1 -> task.tuesdayActive
+                    2 -> task.wednesdayActive
+                    3 -> task.thursdayActive
+                    4 -> task.fridayActive
+                    5 -> task.saturdayActive
+                    else -> task.sundayActive
+                }
+            } else {
+                false
+            }
+        }
+    }
+
+    // Sync Indicator Row
+    val syncState by viewModel.syncState.collectAsStateWithLifecycle()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        // iOS Navigation Header with Elegant Layout
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "学习打勾表",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Black,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    letterSpacing = (-0.5).sp
+                )
+                Text(
+                    text = "高效学习 · 每日勾画",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+            }
+            if (syncState is SyncState.Syncing) {
+                CircularProgressIndicator(
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp
+                )
+            } else {
+                IconButton(
+                    onClick = { viewModel.triggerUpload() },
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .testTag("header_sync_button")
+                ) {
+                    Icon(
+                        Icons.Filled.Sync,
+                        contentDescription = "同步云端进度",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+
+        // iOS Style Segmented Switcher Control Row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { weekOffset-- },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "上一周",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
+            Text(
+                text = getWeekIndexLabel(weekOffset),
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+                textAlign = TextAlign.Center
+            )
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (weekOffset != 0) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                            .clickable { weekOffset = 0 }
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                    ) {
+                        Text(
+                            "回到本周",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+                
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { weekOffset++ },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = "下一周",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Active week calendar day details header - Symmetrical native iOS Apple style
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            weekDays.forEach { (dateStr, displayLabel) ->
+                val isToday = (dateStr == todayStr)
+                val isSelected = (dateStr == selectedDate)
+                val labelParts = displayLabel.split("\n")
+                
+                // Represent each calendar day inside a highly tactile responsive capsule
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 3.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            when {
+                                isSelected -> MaterialTheme.colorScheme.primary
+                                isToday -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                else -> Color.Transparent
+                            }
+                        )
+                        .border(
+                            width = if (isToday && !isSelected) 1.dp else 0.dp,
+                            color = if (isToday && !isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        .clickable { selectedDate = dateStr }
+                        .padding(vertical = 8.dp)
+                ) {
+                    // Let's swap these vertically if needed, but keeping number-first is elegant as before
+                    Text(
+                        text = labelParts.firstOrNull() ?: "",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = when {
+                            isSelected -> Color.White
+                            isToday -> MaterialTheme.colorScheme.primary
+                            else -> MaterialTheme.colorScheme.onSurface
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = labelParts.getOrNull(1) ?: "",
+                        fontSize = 11.sp,
+                        color = when {
+                            isSelected -> Color.White
+                            isToday -> MaterialTheme.colorScheme.primary
+                            else -> MaterialTheme.colorScheme.secondary
+                        },
+                        fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
+            }
+        }
+
+        HorizontalDivider(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant
+        )
+
+        // Task Items list
+        if (tasks.isEmpty()) {
+            EmptyListPlaceholder()
+        } else if (filteredTasks.isEmpty()) {
+            EmptyDayPlaceholder()
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(filteredTasks, key = { it.id }) { task ->
+                    TaskHabitRow(
+                        task = task,
+                        categories = categories,
+                        weekDays = weekDays,
+                        completedKeys = completedKeysByDate,
+                        selectedDate = selectedDate,
+                        onToggle = { dateStr -> viewModel.toggleCompletion(task.id, dateStr) },
+                        onEdit = { onEditTask(task) },
+                        onDelete = { viewModel.deleteTask(task.id) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TaskHabitRow(
+    task: Task,
+    categories: List<Category>,
+    weekDays: List<Pair<String, String>>,
+    completedKeys: Set<String>,
+    selectedDate: String,
+    onToggle: (String) -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val category = remember(task.categoryId, categories) {
+        categories.find { it.id == task.categoryId }
+    }
+    val themeColor = remember(category) {
+        try {
+            Color(android.graphics.Color.parseColor(category?.colorHex ?: "#78909C"))
+        } catch (e: Exception) {
+            Color(0xFF78909C)
+        }
+    }
+
+    var showMenu by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("task_item_${task.id}"),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+        ),
+        shape = RoundedCornerShape(14.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Elegant vertical stripes for category color at the very left of iOS card
+            Box(
+                modifier = Modifier
+                    .width(5.dp)
+                    .fillMaxHeight()
+                    .background(themeColor)
+            )
+
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Info block
+                Column(modifier = Modifier.weight(1.3f)) {
+                    // Category Badge with thin border
+                    category?.let {
+                        Text(
+                            text = it.name,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = themeColor,
+                            modifier = Modifier
+                                .background(themeColor.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+
+                    Text(
+                        text = task.title,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        letterSpacing = (-0.3).sp
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Metadata row containing notifications and recurrence info
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Recurrence Icon and label
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.DateRange,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary.copy(alpha = 0.6f),
+                                modifier = Modifier.size(11.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = if (task.targetDate != null) "单次: ${task.targetDate}" else getRecurrenceText(task),
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+
+                        // Alarm Bell Icon and time
+                        task.alarmTime?.let {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.Notifications,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = it,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // End Right interaction block
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    val isChecked = completedKeys.contains("${task.id}_$selectedDate")
+                    val isDayScheduled = if (task.targetDate != null) {
+                        task.targetDate == selectedDate
+                    } else {
+                        val dayIndex = weekDays.indexOfFirst { it.first == selectedDate }
+                        if (dayIndex in 0..6) {
+                            when (dayIndex) {
+                                0 -> task.mondayActive
+                                1 -> task.tuesdayActive
+                                2 -> task.wednesdayActive
+                                3 -> task.thursdayActive
+                                4 -> task.fridayActive
+                                5 -> task.saturdayActive
+                                else -> task.sundayActive
+                            }
+                        } else false
+                    }
+
+                    if (isDayScheduled) {
+                        // iOS Style Large Circular Button Tappable check
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .border(
+                                    width = if (isChecked) 0.dp else 2.dp,
+                                    color = if (isChecked) Color.Transparent else themeColor,
+                                    shape = CircleShape
+                                )
+                                .background(if (isChecked) themeColor else themeColor.copy(alpha = 0.05f))
+                                .clickable { onToggle(selectedDate) }
+                                .testTag("tick_${task.id}_$selectedDate")
+                        ) {
+                            if (isChecked) {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = "已打勾",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = "休息日",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f),
+                            modifier = Modifier.padding(end = 4.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    // Options trigger drop-down
+                    Box {
+                        IconButton(
+                            onClick = { showMenu = true },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .testTag("task_menu_${task.id}")
+                        ) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = "更多选项",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("编辑计划", fontSize = 14.sp) },
+                                onClick = {
+                                    showMenu = false
+                                    onEdit()
+                                },
+                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(16.dp)) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("删除该项", fontSize = 14.sp, color = MaterialTheme.colorScheme.error) },
+                                onClick = {
+                                    showMenu = false
+                                    onDelete()
+                                },
+                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = "删除", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp)) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun EmptyListPlaceholder() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            Icons.Default.DateRange,
+            contentDescription = "打勾表为空",
+            modifier = Modifier.size(72.dp),
+            tint = MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f)
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = "还没有日常计划任务",
+            fontWeight = FontWeight.Bold,
+            fontSize = 18.sp,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "点击底部 + 按钮快速添加第一条周循环打勾计划吧！",
+            fontSize = 13.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+fun getRecurrenceText(task: com.example.data.model.Task): String {
+    val days = mutableListOf<String>()
+    if (task.mondayActive && task.tuesdayActive && task.wednesdayActive && task.thursdayActive && task.fridayActive && task.saturdayActive && task.sundayActive) {
+        return "每天"
+    }
+    if (task.mondayActive && task.tuesdayActive && task.wednesdayActive && task.thursdayActive && task.fridayActive && !task.saturdayActive && !task.sundayActive) {
+        return "工作日重复"
+    }
+    if (!task.mondayActive && !task.tuesdayActive && !task.wednesdayActive && !task.thursdayActive && !task.fridayActive && task.saturdayActive && task.sundayActive) {
+        return "周末重复"
+    }
+    if (task.mondayActive) days.add("一")
+    if (task.tuesdayActive) days.add("二")
+    if (task.wednesdayActive) days.add("三")
+    if (task.thursdayActive) days.add("四")
+    if (task.fridayActive) days.add("五")
+    if (task.saturdayActive) days.add("六")
+    if (task.sundayActive) days.add("日")
+    return if (days.isEmpty()) "单次" else "每周 ${days.joinToString("、")}"
+}
+
+@Composable
+fun EmptyDayPlaceholder() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            Icons.Default.Celebration,
+            contentDescription = "今日计划已完成或无任务",
+            modifier = Modifier.size(72.dp),
+            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = "本日无任何打勾计划",
+            fontWeight = FontWeight.Bold,
+            fontSize = 18.sp,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "可以在日历中选择其他日期查看，或者休息一下吧！",
+            fontSize = 13.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+// ==========================================
+// 2. STATISTICS TAB IMPLEMENTATION
+// ==========================================
+@Composable
+fun StatisticsTab(viewModel: HabitViewModel) {
+    val tasks by viewModel.tasks.collectAsStateWithLifecycle()
+    val records by viewModel.completionRecords.collectAsStateWithLifecycle()
+    val categories by viewModel.categories.collectAsStateWithLifecycle()
+
+    var activeMonthOffset by remember { mutableStateOf(0) }
+    val (year, monthIndex, monthLabel) = remember(activeMonthOffset) {
+        val cal = Calendar.getInstance()
+        cal.add(Calendar.MONTH, activeMonthOffset)
+        Triple(
+            cal.get(Calendar.YEAR),
+            cal.get(Calendar.MONTH),
+            SimpleDateFormat("yyyy年MM月", Locale.getDefault()).format(cal.time)
+        )
+    }
+
+    val daysInActiveMonth = remember(year, monthIndex) {
+        getDaysInMonthList(year, monthIndex)
+    }
+
+    // High level metrics
+    val totalActiveTasks = tasks.size
+    val totalCompletionsThisMonth = remember(records, daysInActiveMonth) {
+        records.count { rec -> daysInActiveMonth.contains(rec.dateString) }
+    }
+
+    // High performance cache: Parse active days of week exactly ONCE!
+    val daysInActiveMonthWithDaysOfWeek = remember(daysInActiveMonth) {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val calendar = Calendar.getInstance()
+        daysInActiveMonth.map { dateStr ->
+            val dayOfWeek = try {
+                val date = sdf.parse(dateStr)
+                if (date != null) {
+                    calendar.time = date
+                    calendar.get(Calendar.DAY_OF_WEEK)
+                } else {
+                    -1
+                }
+            } catch (e: Exception) {
+                -1
+            }
+            Pair(dateStr, dayOfWeek)
+        }
+    }
+
+    // Weekly completion rate statistics
+    val maxCompletionsPossible = remember(tasks, daysInActiveMonthWithDaysOfWeek) {
+        var totalPossible = 0
+        daysInActiveMonthWithDaysOfWeek.forEach { (_, dayOfWeek) ->
+            if (dayOfWeek != -1) {
+                tasks.forEach { t ->
+                    val isScheduled = when (dayOfWeek) {
+                        Calendar.MONDAY -> t.mondayActive
+                        Calendar.TUESDAY -> t.tuesdayActive
+                        Calendar.WEDNESDAY -> t.wednesdayActive
+                        Calendar.THURSDAY -> t.thursdayActive
+                        Calendar.FRIDAY -> t.fridayActive
+                        Calendar.SATURDAY -> t.saturdayActive
+                        Calendar.SUNDAY -> t.sundayActive
+                        else -> false
+                    }
+                    if (isScheduled) totalPossible++
+                }
+            }
+        }
+        if (totalPossible <= 0) 1 else totalPossible
+    }
+
+    val monthCompletionRate = remember(totalCompletionsThisMonth, maxCompletionsPossible) {
+        ((totalCompletionsThisMonth.toFloat() / maxCompletionsPossible.toFloat()) * 100).toInt().coerceIn(0, 100)
+    }
+
+    // Category progress metrics map
+    val categoryStats = remember(records, tasks, categories, daysInActiveMonthWithDaysOfWeek) {
+        val daysSet = daysInActiveMonth.toSet()
+        categories.map { cat ->
+            val tasksInCat = tasks.filter { it.categoryId == cat.id }
+            val taskIdsInCat = tasksInCat.map { it.id }.toSet()
+            // Fast lookup for records matching active days in this category
+            val totalTicks = records.count { rec -> 
+                taskIdsInCat.contains(rec.taskId) && daysSet.contains(rec.dateString)
+            }
+            
+            var possibleCat = 0
+            daysInActiveMonthWithDaysOfWeek.forEach { (_, dayOfWeek) ->
+                if (dayOfWeek != -1) {
+                    tasksInCat.forEach { t ->
+                        val isScheduled = when (dayOfWeek) {
+                            Calendar.MONDAY -> t.mondayActive
+                            Calendar.TUESDAY -> t.tuesdayActive
+                            Calendar.WEDNESDAY -> t.wednesdayActive
+                            Calendar.THURSDAY -> t.thursdayActive
+                            Calendar.FRIDAY -> t.fridayActive
+                            Calendar.SATURDAY -> t.saturdayActive
+                            Calendar.SUNDAY -> t.sundayActive
+                            else -> false
+                        }
+                        if (isScheduled) possibleCat++
+                    }
+                }
+            }
+            Triple(cat, totalTicks, if (possibleCat <= 0) 1 else possibleCat)
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp)
+    ) {
+        // Month Selector Header Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { activeMonthOffset-- }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "上个月")
+                }
+
+                Text(
+                    text = "$monthLabel 打卡分析",
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 18.sp,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+
+                IconButton(onClick = { activeMonthOffset++ }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "下个月")
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Metrics Summary Grids
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            MetricsSmallCard(
+                title = "我的标签习惯",
+                value = "$totalActiveTasks 项",
+                subtitle = "活跃打单习惯",
+                icon = Icons.Default.Style,
+                modifier = Modifier.weight(1f)
+            )
+
+            MetricsSmallCard(
+                title = "本月打勾数",
+                value = "$totalCompletionsThisMonth 次",
+                subtitle = "历史累积记录",
+                icon = Icons.Filled.CheckCircle,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Large Completion Rate Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.size(80.dp)
+                ) {
+                    CircularProgressIndicator(
+                        progress = { monthCompletionRate.toFloat() / 100f },
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.primary,
+                        strokeWidth = 8.dp,
+                        trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    )
+                    Text(
+                        text = "$monthCompletionRate%",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(20.dp))
+
+                Column {
+                    Text(
+                        text = "月度平均打勾率",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "打卡理想周期计划 ${maxCompletionsPossible} 次中，您已完美完成了 ${totalCompletionsThisMonth} 次打勾事项。",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 16.sp,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // High Fidelity Month Heatmap (GitHub Contributions style)
+        Text(
+            text = "月度打卡热力图 (每日进度)",
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 8.dp, start = 4.dp)
+        )
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                // Days grid 1 to N
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(7),
+                        modifier = Modifier
+                            .height(160.dp)
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(daysInActiveMonth) { dateStr ->
+                            val completionsOfDay = records.count { it.dateString == dateStr }
+                            // Determine relative alpha shade
+                            val colorShade = when {
+                                completionsOfDay == 0 -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                completionsOfDay <= 1 -> MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                                completionsOfDay <= 3 -> MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                                else -> MaterialTheme.colorScheme.primary
+                            }
+
+                            // Retrieve local day label (e.g. 1, 2)
+                            val dayLabel = dateStr.substringAfterLast("-", "").removePrefix("0")
+
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(colorShade)
+                            ) {
+                                Text(
+                                    text = dayLabel,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (completionsOfDay > 0) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                // Heat Legend
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("极少 ", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Box(modifier = Modifier.size(10.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)))
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Box(modifier = Modifier.size(10.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)))
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Box(modifier = Modifier.size(10.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)))
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Box(modifier = Modifier.size(10.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.primary))
+                    Text(" 极多", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Custom Visual Category Completion Bars
+        Text(
+            text = "分类进度明细 (总打卡率)",
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 8.dp, start = 4.dp)
+        )
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                categoryStats.forEach { (cat, count, max) ->
+                    val rate = ((count.toFloat() / max.toFloat()) * 100).toInt().coerceIn(0, 100)
+                    val catThemeColor = remember(cat) {
+                        try {
+                            Color(android.graphics.Color.parseColor(cat.colorHex))
+                        } catch (e: Exception) {
+                            Color(0xFF78909C)
+                        }
+                    }
+
+                    Column(modifier = Modifier.padding(vertical = 6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(catThemeColor))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = cat.name,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Text(
+                                text = "当月 $count/$max ($rate%)",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        LinearProgressIndicator(
+                            progress = { rate.toFloat() / 100f },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp)
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp)),
+                            color = catThemeColor,
+                            trackColor = catThemeColor.copy(alpha = 0.15f)
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+    }
+}
+
+@Composable
+fun MetricsSmallCard(
+    title: String,
+    value: String,
+    subtitle: String,
+    icon: ImageVector,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = title,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = value,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = subtitle,
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+    }
+}
+
+// ==========================================
+// 3. SETTINGS & SYNC TAB IMPLEMENTATION
+// ==========================================
+@Composable
+fun SettingsTab(
+    viewModel: HabitViewModel,
+    onManageCategories: () -> Unit
+) {
+    val syncUrl by viewModel.syncUrl.collectAsStateWithLifecycle()
+    val syncToken by viewModel.syncToken.collectAsStateWithLifecycle()
+    val syncState by viewModel.syncState.collectAsStateWithLifecycle()
+
+    var urlInput by remember { mutableStateOf(syncUrl) }
+    var tokenInput by remember { mutableStateOf(syncToken) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp)
+    ) {
+        // Feature Section 1: Custom Cloud Sync Config
+        Text(
+            text = "云端数据同步备份 (随时随地访问)",
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 8.dp, start = 4.dp)
+        )
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "配置独立的 REST API 备份同步端点。开启本功能，可让您的 Room 离线缓存自动打包上传至云存储中，防止记录丢失，方便随时更换设备查看。",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 16.sp
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = urlInput,
+                    onValueChange = { urlInput = it },
+                    label = { Text("同步上传/拉取 URL 路径") },
+                    placeholder = { Text("如 https://my-server.com/api/sync") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("sync_url_field"),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = tokenInput,
+                    onValueChange = { tokenInput = it },
+                    label = { Text("校验密钥 / API Token (可选)") },
+                    placeholder = { Text("Bearer 或 校验安全秘钥") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("sync_token_field"),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            viewModel.updateSyncConfig(urlInput, tokenInput)
+                            viewModel.triggerUpload()
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("upload_sync_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Filled.CloudUpload, contentDescription = "上传备份", modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("备份上传")
+                    }
+
+                    Button(
+                        onClick = {
+                            viewModel.updateSyncConfig(urlInput, tokenInput)
+                            viewModel.triggerDownload()
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("download_sync_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                    ) {
+                        Icon(Icons.Filled.CloudDownload, contentDescription = "下载合并", modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("合并拉取")
+                    }
+                }
+
+                // Temporary Debug State
+                if (syncState is SyncState.Syncing) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("正在与同步节点握手通信...", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(18.dp))
+
+        // Feature Section 2: Habit Classification Tags
+        Text(
+            text = "个性化分类标签管理",
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 8.dp, start = 4.dp)
+        )
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "在此设定您的打卡计划维度分类（例如：工作、健康、阅读），习惯养成更有层次。",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 16.sp
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Button(
+                    onClick = onManageCategories,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("manage_categories_button"),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                ) {
+                    Icon(Icons.Filled.Style, contentDescription = "管理自定义分类标签", modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("管理自定义标签")
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Quick User Guide
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text("💡 使用指导：", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("1. 在 '打勾表' 页面点按 '+' 按钮可任选周期重复或指定单天任务。", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("2. 设定时间提醒后，到点系统将发送前台通知提升打卡率。", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+// ==========================================
+// 4. DIALOG & SUBFORMS OVERLAYS
+// ==========================================
+@Composable
+fun TaskFormDialog(
+    task: Task?,
+    categoriesFlow: StateFlow<List<Category>>,
+    onDismiss: () -> Unit,
+    onSave: (
+        title: String,
+        categoryId: String?,
+        alarmTime: String?,
+        mon: Boolean, tue: Boolean, wed: Boolean, thur: Boolean, fri: Boolean, sat: Boolean, sun: Boolean,
+        targetDate: String?
+    ) -> Unit
+) {
+    val categories by categoriesFlow.collectAsStateWithLifecycle()
+
+    var title by remember { mutableStateOf(task?.title ?: "") }
+    var selectedCategoryId by remember { mutableStateOf(task?.categoryId ?: "") }
+    
+    // Task Type Option
+    var isSingleDayEvent by remember { mutableStateOf(task?.targetDate != null) }
+    val todayDateStr = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
+    var targetDate by remember { mutableStateOf(task?.targetDate ?: todayDateStr) }
+    var targetDateError by remember { mutableStateOf(false) }
+
+    // Alarms Configuration
+    var enableReminder by remember { mutableStateOf(task?.alarmTime != null) }
+    var alarmHour by remember {
+        mutableStateOf(
+            task?.alarmTime?.substringBefore(":") ?: "08"
+        )
+    }
+    var alarmMinute by remember {
+        mutableStateOf(
+            task?.alarmTime?.substringAfter(":") ?: "30"
+        )
+    }
+
+    // Mon to Sun Active settings states
+    var monActive by remember { mutableStateOf(task?.mondayActive ?: true) }
+    var tueActive by remember { mutableStateOf(task?.tuesdayActive ?: true) }
+    var wedActive by remember { mutableStateOf(task?.wednesdayActive ?: true) }
+    var thuActive by remember { mutableStateOf(task?.thursdayActive ?: true) }
+    var friActive by remember { mutableStateOf(task?.fridayActive ?: true) }
+    var satActive by remember { mutableStateOf(task?.saturdayActive ?: true) }
+    var sunActive by remember { mutableStateOf(task?.sundayActive ?: true) }
+
+    var titleError by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { 
+            Text(
+                if (task == null) "新学习任务" else "修改学习任务", 
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                letterSpacing = (-0.5).sp,
+                color = MaterialTheme.colorScheme.onSurface
+            ) 
+        },
+        shape = RoundedCornerShape(16.dp),
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // Task title text input
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = {
+                        title = it
+                        titleError = false
+                    },
+                    label = { Text("任务名称 (例如: 练听力)") },
+                    isError = titleError,
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("dialog_task_title_input"),
+                    trailingIcon = {
+                        if (titleError) {
+                            Icon(Icons.Filled.Warning, contentDescription = "错误", tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                )
+                if (titleError) {
+                    Text("标题名称不能为空！", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                }
+
+                // Category lookup spinner selection
+                Text("标签分类", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary)
+                Box {
+                    var expanded by remember { mutableStateOf(false) }
+                    val currentSelectionName = remember(selectedCategoryId, categories) {
+                        categories.find { it.id == selectedCategoryId }?.name ?: "无分类"
+                    }
+
+                    OutlinedButton(
+                        onClick = { expanded = true },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("dialog_category_select_button")
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(currentSelectionName, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = "展开列表", tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false },
+                        modifier = Modifier.fillMaxWidth(0.7f)
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("无分类") },
+                            onClick = {
+                                selectedCategoryId = ""
+                                expanded = false
+                            }
+                        )
+                        categories.forEach { cat ->
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(android.graphics.Color.parseColor(cat.colorHex)))
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(cat.name)
+                                    }
+                                },
+                                onClick = {
+                                    selectedCategoryId = cat.id
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // Task design mode segmented choice
+                Text("计划模式", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                        .padding(3.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (!isSingleDayEvent) MaterialTheme.colorScheme.surface else Color.Transparent)
+                            .clickable { isSingleDayEvent = false }
+                            .padding(vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "每周循环",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (!isSingleDayEvent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (isSingleDayEvent) MaterialTheme.colorScheme.surface else Color.Transparent)
+                            .clickable { isSingleDayEvent = true }
+                            .padding(vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "指定单天",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSingleDayEvent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                if (isSingleDayEvent) {
+                    // Single day picker / input field
+                    OutlinedTextField(
+                        value = targetDate,
+                        onValueChange = {
+                            targetDate = it
+                            targetDateError = false
+                        },
+                        label = { Text("任务日期 (格式: YYYY-MM-DD)") },
+                        placeholder = { Text("例如: $todayDateStr") },
+                        isError = targetDateError,
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("dialog_target_date_input"),
+                        trailingIcon = {
+                            Icon(Icons.Filled.DateRange, contentDescription = "日期", tint = MaterialTheme.colorScheme.primary)
+                        }
+                    )
+                    if (targetDateError) {
+                        Text("格式错误，请填写正确的时间 YYYY-MM-DD", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                    }
+                } else {
+                    // Weekday selection row logic with intuitive presets
+                    Text("设定周期 (一至日)", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary)
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("快捷：", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        
+                        val isAllActive = monActive && tueActive && wedActive && thuActive && friActive && satActive && sunActive
+                        val isWeekActive = monActive && tueActive && wedActive && thuActive && friActive && !satActive && !sunActive
+                        
+                        // Daily Preset Button
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isAllActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .clickable {
+                                    monActive = true
+                                    tueActive = true
+                                    wedActive = true
+                                    thuActive = true
+                                    friActive = true
+                                    satActive = true
+                                    sunActive = true
+                                }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text("每天重复", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (isAllActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        
+                        // Weekday Preset Button
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isWeekActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .clickable {
+                                    monActive = true
+                                    tueActive = true
+                                    wedActive = true
+                                    thuActive = true
+                                    friActive = true
+                                    satActive = false
+                                    sunActive = false
+                                }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text("仅学习日", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (isWeekActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        val daysSettings = listOf(
+                            Triple("一", monActive) { monActive = !monActive },
+                            Triple("二", tueActive) { tueActive = !tueActive },
+                            Triple("三", wedActive) { wedActive = !wedActive },
+                            Triple("四", thuActive) { thuActive = !thuActive },
+                            Triple("五", friActive) { friActive = !friActive },
+                            Triple("六", satActive) { satActive = !satActive },
+                            Triple("日", sunActive) { sunActive = !sunActive }
+                        )
+
+                        daysSettings.forEach { (label, active, onToggle) ->
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                    )
+                                    .clickable { onToggle() }
+                            ) {
+                                Text(
+                                    label,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(0.5.dp)
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                        .padding(vertical = 4.dp)
+                )
+
+                // Custom Time Alarms configuration setter dialog field
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.NotificationsActive, contentDescription = "提醒通知", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("到时通知提醒", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                    Switch(
+                        checked = enableReminder,
+                        onCheckedChange = { enableReminder = it },
+                        modifier = Modifier.testTag("dialog_reminder_switch")
+                    )
+                }
+
+                if (enableReminder) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = alarmHour,
+                            onValueChange = { alarmHour = it.take(2) },
+                            label = { Text("时 (HH)") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(10.dp),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(":", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = MaterialTheme.colorScheme.primary)
+                        OutlinedTextField(
+                            value = alarmMinute,
+                            onValueChange = { alarmMinute = it.take(2) },
+                            label = { Text("分 (MM)") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(10.dp),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (title.isBlank()) {
+                        titleError = true
+                        return@Button
+                    }
+
+                    // Validate Date format if single event
+                    if (isSingleDayEvent) {
+                        val parts = targetDate.split("-")
+                        if (parts.size != 3 || parts[0].length != 4 || parts[1].length != 2 || parts[2].length != 2 || targetDate.length != 10) {
+                            targetDateError = true
+                            return@Button
+                        }
+                    }
+
+                    // Validate hour & min format
+                    val remTime = if (enableReminder) {
+                        val hr = alarmHour.toIntOrNull()?.coerceIn(0, 23) ?: 8
+                        val mn = alarmMinute.toIntOrNull()?.coerceIn(0, 59) ?: 30
+                        String.format(Locale.getDefault(), "%02d:%02d", hr, mn)
+                    } else {
+                        null
+                    }
+
+                    onSave(
+                        title,
+                        if (selectedCategoryId.isEmpty()) null else selectedCategoryId,
+                        remTime,
+                        if (isSingleDayEvent) false else monActive,
+                        if (isSingleDayEvent) false else tueActive,
+                        if (isSingleDayEvent) false else wedActive,
+                        if (isSingleDayEvent) false else thuActive,
+                        if (isSingleDayEvent) false else friActive,
+                        if (isSingleDayEvent) false else satActive,
+                        if (isSingleDayEvent) false else sunActive,
+                        if (isSingleDayEvent) targetDate else null
+                    )
+                },
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.testTag("dialog_save_task_button")
+            ) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消", color = MaterialTheme.colorScheme.secondary)
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun CategoryFormDialog(
+    viewModel: HabitViewModel,
+    onDismiss: () -> Unit
+) {
+    val categories by viewModel.categories.collectAsStateWithLifecycle()
+    var inputName by remember { mutableStateOf("") }
+    
+    // Solid vibrant Material theme color choices
+    val availableColors = listOf(
+        "#E91E63", // Pink
+        "#9C27B0", // Purple
+        "#2196F3", // Blue
+        "#4CAF50", // Green
+        "#FFEB3B", // Yellow
+        "#FF9800", // Orange
+        "#795548", // Brown
+        "#607D8B"  // Grey
+    )
+    var selectedColorHex by remember { mutableStateOf(availableColors.first()) }
+    var showErrorMsg by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("自定义分类标签管理", fontWeight = FontWeight.ExtraBold) },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("当前已存在的分类标签：", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                
+                // Show Tags chips
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    categories.forEach { cat ->
+                        AssistChip(
+                            onClick = {
+                                viewModel.deleteCategory(cat.id)
+                            },
+                            label = { Text(cat.name, fontSize = 11.sp) },
+                            leadingIcon = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(android.graphics.Color.parseColor(cat.colorHex)))
+                                )
+                            },
+                            trailingIcon = {
+                                Icon(Icons.Filled.Close, contentDescription = "删除该类型", modifier = Modifier.size(14.dp))
+                            }
+                        )
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                Text("添加新的分类标签：", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+
+                OutlinedTextField(
+                    value = inputName,
+                    onValueChange = {
+                        inputName = it
+                        showErrorMsg = false
+                    },
+                    label = { Text("标签名称举例：阅读、护肤") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("dialog_category_name_input")
+                )
+                if (showErrorMsg) {
+                    Text("标签名称不能为空！", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                }
+
+                Text("选择特征标识配色：", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    availableColors.forEach { hex ->
+                        val color = Color(android.graphics.Color.parseColor(hex))
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(30.dp)
+                                .clip(CircleShape)
+                                .background(color)
+                                .border(
+                                    width = if (selectedColorHex == hex) 2.dp else 0.dp,
+                                    color = if (selectedColorHex == hex) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                                    shape = CircleShape
+                                )
+                                .clickable { selectedColorHex = hex }
+                        ) {
+                            if (selectedColorHex == hex) {
+                                Icon(Icons.Filled.Check, contentDescription = "已选择", tint = Color.White, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (inputName.isBlank()) {
+                        showErrorMsg = true
+                        return@Button
+                    }
+                    viewModel.addCategory(inputName, selectedColorHex)
+                    inputName = ""
+                },
+                modifier = Modifier.testTag("dialog_add_category_confirm")
+            ) {
+                Text("增加标签")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("退出")
+            }
+        }
+    )
+}
+
+// ==========================================
+// 5. CALENDAR & TEXT HELPERS UTILITIES
+// ==========================================
+fun getWeekDaysList(weekOffset: Int): List<Pair<String, String>> {
+    val days = mutableListOf<Pair<String, String>>()
+    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+    val cal = Calendar.getInstance().apply {
+        firstDayOfWeek = Calendar.MONDAY
+        // Snap to this monday
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+        set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+        add(Calendar.WEEK_OF_YEAR, weekOffset)
+    }
+
+    val weeksLabels = listOf("一", "二", "三", "四", "五", "六", "日")
+    for (i in 0 until 7) {
+        val dateStr = sdf.format(cal.time)
+        val dayNum = cal.get(Calendar.DAY_OF_MONTH).toString()
+        days.add(Pair(dateStr, "$dayNum\n${weeksLabels[i]}"))
+        cal.add(Calendar.DAY_OF_WEEK, 1)
+    }
+    return days
+}
+
+fun getDaysInMonthList(year: Int, monthIndex: Int): List<String> {
+    val dates = mutableListOf<String>()
+    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+    val cal = Calendar.getInstance().apply {
+        set(Calendar.YEAR, year)
+        set(Calendar.MONTH, monthIndex)
+        set(Calendar.DAY_OF_MONTH, 1)
+    }
+    val maxDays = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
+    for (i in 1..maxDays) {
+        cal.set(Calendar.DAY_OF_MONTH, i)
+        dates.add(sdf.format(cal.time))
+    }
+    return dates
+}
+
+fun getWeekIndexLabel(weekOffset: Int): String {
+    return when (weekOffset) {
+        0 -> "本周"
+        1 -> "下周"
+        -1 -> "上周"
+        else -> if (weekOffset > 0) "未来 ${weekOffset} 周" else "过去 ${-weekOffset} 周"
+    }
+}
+
+@Composable
+fun Greeting(name: String, modifier: Modifier = Modifier) {
+    Text(text = "Hello $name!", modifier = modifier)
+}
+

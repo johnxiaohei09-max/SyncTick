@@ -1,0 +1,25 @@
+package com.example.ui.theme
+
+import androidx.compose.ui.graphics.Color
+
+// Light mode iOS Palette
+val iOSBlueLight = Color(0xFF007AFF)      // System Blue
+val iOSGreenLight = Color(0xFF34C759)     // System Green
+val iOSIndigoLight = Color(0xFF5856D6)    // System Indigo
+val iOSRedLight = Color(0xFFFF3B30)       // System Red
+val iOSOrangeLight = Color(0xFFFF9500)    // System Orange
+val iosGrayLight = Color(0xFF8E8E93)      // System Gray
+val iOSBackgroundLight = Color(0xFFF2F2F7)// System Background Grouped Secondary
+val iOSSurfaceLight = Color(0xFFFFFFFF)    // System Background Primary
+
+// Dark mode iOS Palette
+val iOSBlueDark = Color(0xFF0A84FF)       // System Blue Dark
+val iOSGreenDark = Color(0xFF30D158)      // System Green Dark
+val iOSIndigoDark = Color(0xFF5E5CE6)     // System Indigo Dark
+val iOSRedDark = Color(0xFFFF453A)        // System Red Dark
+val iOSOrangeDark = Color(0xFFFF9F0A)     // System Orange Dark
+val iosGrayDark = Color(0xFF8E8E93)       // System Gray
+val iOSBackgroundDark = Color(0xFF000000) // Pure Black Background
+val iOSSurfaceDark = Color(0xFF1C1C1E)     // Dark Charcoal Surface
+val iOSSurfaceVariantDark = Color(0xFF2C2C2E) // Lighter dark card cell
+

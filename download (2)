@@ -1,0 +1,6 @@
+{
+  "name": "学习打勾表",
+  "description": "一个功能强大、设计精美的学习计划任务打勾表，支持每周循环与每日学习任务、自定义分類标签、云端同步、离线缓存、学习任务提醒以及精美的月度打卡统计图表。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

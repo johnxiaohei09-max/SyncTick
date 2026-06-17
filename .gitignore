@@ -1,39 +1,85 @@
-# Gradle files
-.gradle/
+################################
+## 1. 编译生成物 (构建垃圾)
+################################
+# Gradle 构建输出
 build/
-app/build/
-.idea/
-.DS_Store
-*.apk
-*.class
+**/build/
+.gradle/
 
-# Local configuration file (sdk path, etc)
-local.properties
-
-# Log/OS Files
-*.log
-
-# Android Studio generated files and folders
-captures/
-.externalNativeBuild/
+# C++ 代码构建缓存
 .cxx/
-*.aab
+.externalNativeBuild/
+
+# Android 打包产物
 *.apk
+*.aab
+
+# 构建元数据
 output-metadata.json
 
-# IntelliJ
-*.iml
+# 性能监控截图
+captures/
+
+################################
+## 2. IDE 配置文件 (个人环境)
+################################
+# IntelliJ IDEA / Android Studio
 .idea/
+*.iml
+*.ipr
+*.iws
 misc.xml
 deploymentTargetDropDown.xml
 render.experimental.xml
 
-# Keystore files
+# Eclipse 配置
+.project
+.classpath
+.settings/
+
+# VS Code 配置（可选）
+.vscode/
+*.code-workspace
+
+################################
+## 3. 敏感信息 (安全红线)
+################################
+# 本地SDK配置 + 本地密钥信息
+local.properties
+
+# 签名证书文件
 *.jks
 *.keystore
+*.p12
 
-# Google Services (e.g. APIs or Firebase)
+# Google Services / Firebase 密钥
 google-services.json
 
-# Android Profiling
+# 自定义密钥和环境配置
+*.env
+*.env.local
+*.env.*.local
+
+################################
+## 4. 其他杂项
+################################
+# OS 生成的垃圾文件
+.DS_Store
+Thumbs.db
+
+# 日志文件
+*.log
+logs/
+
+# 编译产物
+*.class
+*.dex
+
+# Android Profiler 内存转储
 *.hprof
+
+# 临时文件
+*.tmp
+*.swp
+*.swo
+*~
