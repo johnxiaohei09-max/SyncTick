@@ -1,6 +1,11 @@
 # Gradle files
 .gradle/
 build/
+app/build/
+.idea/
+.DS_Store
+*.apk
+*.class
 
 # Local configuration file (sdk path, etc)
 local.properties
